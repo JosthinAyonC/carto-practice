@@ -3,22 +3,29 @@ import { useEffect, useState } from "react";
 import { LatLng, LatLngExpression } from "leaflet";
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents, Circle } from "react-leaflet";
 
+const API_URL = "http://localhost:8080/api/locations";
+
 const MapView: React.FC = () => {
+  const [locations, setLocations] = useState<{ id: number; name: string; radius: number; center: LatLngExpression }[]>([]);
   const [selectedPosition, setSelectedPosition] = useState<LatLng | null>(null);
   const [isInsidePerimeter, setIsInsidePerimeter] = useState<boolean>(false);
-  const [closestPerimeter, setClosestPerimeter] = useState<number | null>(null);
+  const [closestPerimeter, setClosestPerimeter] = useState<string>("");
 
-  // Definimos los 6 perímetros con sus coordenadas para el ejercicio
-  const perimeters: { id: number; center: LatLngExpression }[] = [
-    { id: 1, center: [-2.168931, -79.897686] },
-    { id: 2, center: [-2.167931, -79.896686] },
-    { id: 3, center: [-2.170000, -79.895500] },
-    { id: 4, center: [-2.169500, -79.898000] },
-    { id: 5, center: [-2.168000, -79.899000] },
-    { id: 6, center: [-2.167500, -79.897000] },
-  ];
-
-  const radius = 50; // Radio en metros del perímetro
+  // Cargar datos desde la API
+  useEffect(() => {
+    fetch(API_URL)
+      .then((res) => res.json())
+      .then((data) => {
+        const newLocations = data.features.map((feature: any, index: number) => ({
+          id: feature.properties.id || index + 1,
+          name: feature.properties.name,
+          center: feature.geometry.coordinates.reverse() as LatLngExpression, // Leaflet usa [lat, lng]
+          radius: feature.properties.radius_perimeter || 50,
+        }));
+        setLocations(newLocations);
+      })
+      .catch((error) => console.error("Error cargando las ubicaciones:", error));
+  }, []);
 
   useEffect(() => {
     if (selectedPosition) {
@@ -27,6 +34,7 @@ const MapView: React.FC = () => {
   }, [selectedPosition]);
 
   // Función para calcular la distancia entre dos puntos (Haversine)
+  // https://medium.com/@nakul5harma/distance-between-two-coordinates-using-haversine-formula-272325ec8e9a
   const distance = (point1: LatLng, point2: LatLng): number => {
     const R = 6371e3; // Radio de la Tierra en metros
     const lat1 = point1.lat * (Math.PI / 180);
@@ -45,29 +53,30 @@ const MapView: React.FC = () => {
 
   const checkIfInsidePerimeter = (clickedPoint: LatLng) => {
     let found = false;
-    let closest = null;
+    let closestName = "";
     let minDistance = Infinity;
 
-    perimeters.forEach((perimeter) => {
+    locations.forEach((perimeter) => {
       const centerPoint = Array.isArray(perimeter.center)
         ? new LatLng(perimeter.center[0], perimeter.center[1])
         : perimeter.center as LatLng;
       const dist = distance(clickedPoint, centerPoint);
 
-      if (dist <= radius) {
+      if (dist <= perimeter.radius) {
         found = true;
-        closest = perimeter.id;
+        closestName = perimeter.name;
       }
 
       if (dist < minDistance) {
         minDistance = dist;
-        closest = perimeter.id;
+        closestName = perimeter.name; // Actualizamos con el nombre más cercano
       }
     });
 
     setIsInsidePerimeter(found);
-    setClosestPerimeter(found ? closest : null);
+    setClosestPerimeter(found ? closestName : "");
   };
+
 
   return (
     <MapContainer center={[-2.168931, -79.897686]} zoom={16} style={{ width: "100%", height: "800px" }}>
@@ -76,12 +85,12 @@ const MapView: React.FC = () => {
       {/* 📌 Captura de clics en el mapa */}
       <MapClickHandler onLocationSelect={setSelectedPosition} />
 
-      {/* Dibujar los 6 perímetros visibles, esto es opcional, solo para ele ejercicio */}
-      {perimeters.map((perimeter) => (
+      {/* Dibujar los 6 perímetros visibles, esto es opcional, solo para el ejercicio */}
+      {locations.map((perimeter) => (
         <Circle
           key={perimeter.id}
           center={perimeter.center}
-          radius={radius}
+          radius={perimeter.radius}
           pathOptions={{ color: "blue", fillOpacity: 0.2 }}
         />
       ))}
@@ -95,7 +104,7 @@ const MapView: React.FC = () => {
             <b>Lng:</b> {selectedPosition.lng.toFixed(6)} <br />
             <b>
               {isInsidePerimeter
-                ? `✅ Dentro del perímetro ${closestPerimeter}`
+                ? `✅ Dentro del perímetro de ${closestPerimeter}`
                 : "❌ Fuera de todos los perímetros"}
             </b>
           </Popup>
